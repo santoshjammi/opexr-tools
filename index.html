@@ -1,0 +1,2014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Comparison Tool - FastAPI/Dask</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .card {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .scrollable {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .scrollable::-webkit-scrollbar {
+            width: 8px;
+        }
+        .scrollable::-webkit-scrollbar-thumb {
+            background-color: #3b82f6;
+            border-radius: 4px;
+        }
+        .scrollable::-webkit-scrollbar-track {
+            background-color: #e5e7eb;
+        }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-blue-50 font-sans p-4 md:p-8 min-h-screen">
+    <div class="max-w-7xl mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-5xl font-extrabold text-blue-900 tracking-tight mb-2">
+                Data Comparison Tool
+            </h1>
+            <p class="text-xl text-gray-700 mb-4">FastAPI + Dask Backend | Live Data Integration</p>
+            <div class="flex justify-center items-center space-x-6 text-sm">
+                <div class="flex items-center space-x-2">
+                    <div id="apiStatus" class="w-3 h-3 rounded-full bg-gray-400"></div>
+                    <span id="apiStatusText" class="text-gray-600">Checking API...</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-gray-600">Server:</span>
+                    <code class="bg-gray-200 px-2 py-1 rounded text-xs">http://localhost:8000</code>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <div class="mb-6">
+            <div class="border-b border-gray-300">
+                <nav class="-mb-px flex space-x-4">
+                    <button onclick="switchTab('datasets')" id="tab-datasets" class="tab-button active py-3 px-6 text-sm font-semibold border-b-2 border-blue-600 text-blue-600">
+                        📊 Datasets
+                    </button>
+                    <button onclick="switchTab('comparison')" id="tab-comparison" class="tab-button py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300">
+                        🔍 Basic Comparison
+                    </button>
+                    <button onclick="switchTab('enhanced')" id="tab-enhanced" class="tab-button py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300">
+                        ⭐ Enhanced Comparison
+                    </button>
+                    <button onclick="switchTab('dask')" id="tab-dask" class="tab-button py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300">
+                        ⚡ Dask Comparison
+                    </button>
+                    <button onclick="switchTab('upload')" id="tab-upload" class="tab-button py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300">
+                        📤 Upload & Parse
+                    </button>
+                </nav>
+            </div>
+        </div>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- DATASETS TAB -->
+            <div id="content-datasets" class="tab-content lg:col-span-2 card bg-white p-6 rounded-xl border border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center justify-between">
+                    <span>📊 Available Datasets</span>
+                    <div class="flex space-x-2">
+                        <button onclick="loadDatasets()" class="px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition">
+                            🔄 Refresh
+                        </button>
+                        <button onclick="deleteAllDatasetsConfirm()" class="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition">
+                            🗑️ Delete All
+                        </button>
+                    </div>
+                </h2>
+                
+                <div id="datasetsLoading" class="text-center py-12">
+                    <div class="spinner mx-auto mb-4"></div>
+                    <p class="text-gray-600">Loading datasets...</p>
+                </div>
+                
+                <div id="datasetsContent" class="hidden space-y-6"></div>
+            </div>
+
+            <!-- COMPARISON TAB -->
+            <div id="content-comparison" class="tab-content hidden lg:col-span-2 card bg-white p-6 rounded-xl border border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-2">🔍 Data Comparison Configuration</h2>
+
+                <form id="comparisonForm" class="space-y-6">
+                    <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+                        <p class="text-sm text-blue-800">
+                            <strong>Note:</strong> Select two encoded datasets to compare. Both files must be parsed and encoded first.
+                        </p>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <!-- Dataset A Selection -->
+                        <div class="space-y-2">
+                            <label for="compare_dataset_a" class="block text-sm font-semibold text-blue-700">Dataset A (Source)</label>
+                            <select id="compare_dataset_a" class="w-full rounded-md border-gray-300 shadow-sm p-3 border focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">-- Select Dataset A --</option>
+                            </select>
+                            <div id="dataset_a_info" class="text-xs text-gray-600 hidden"></div>
+                        </div>
+
+                        <!-- Dataset B Selection -->
+                        <div class="space-y-2">
+                            <label for="compare_dataset_b" class="block text-sm font-semibold text-green-700">Dataset B (Target)</label>
+                            <select id="compare_dataset_b" class="w-full rounded-md border-gray-300 shadow-sm p-3 border focus:ring-green-500 focus:border-green-500">
+                                <option value="">-- Select Dataset B --</option>
+                            </select>
+                            <div id="dataset_b_info" class="text-xs text-gray-600 hidden"></div>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Configuration -->
+                    <div class="space-y-4 pt-4 border-t">
+                        <h3 class="text-lg font-semibold text-gray-800">Comparison Settings</h3>
+                        
+                        <div class="space-y-2">
+                            <label for="key_columns" class="block text-sm font-medium text-gray-700">
+                                Key Columns for Matching (comma-separated)
+                            </label>
+                            <input type="text" id="key_columns" 
+                                class="w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500" 
+                                placeholder="e.g., Pers.No., For-period, WT"
+                                value="Pers.No., For-period, WT">
+                            <p class="text-xs text-gray-500">Columns that uniquely identify a record for matching</p>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label for="compare_columns" class="block text-sm font-medium text-gray-700">
+                                Columns to Compare (comma-separated, leave empty for all)
+                            </label>
+                            <input type="text" id="compare_columns" 
+                                class="w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500" 
+                                placeholder="e.g., Amount, Number (empty = compare all)">
+                            <p class="text-xs text-gray-500">Specific columns to compare. Leave empty to compare all columns.</p>
+                        </div>
+
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <label for="tolerance" class="block text-sm font-medium text-gray-700">
+                                    Numeric Tolerance
+                                </label>
+                                <input type="number" id="tolerance" step="0.01" 
+                                    class="w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500" 
+                                    value="0.01">
+                                <p class="text-xs text-gray-500">Acceptable difference for numeric values</p>
+                            </div>
+
+                            <div class="space-y-2">
+                                <label class="flex items-center space-x-2 mt-8">
+                                    <input type="checkbox" id="ignore_case" checked 
+                                        class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-sm font-medium text-gray-700">Ignore Case in Text</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Comparison Action Buttons -->
+                <div class="mt-8 pt-6 border-t flex justify-end space-x-4">
+                    <button onclick="runComparison()" id="compareBtn"
+                        class="px-6 py-3 bg-gradient-to-r from-blue-600 to-green-600 text-white font-semibold rounded-lg shadow-lg hover:from-blue-700 hover:to-green-700 transition duration-150 transform hover:scale-105">
+                        🔍 Run Comparison
+                    </button>
+                </div>
+
+                <!-- Comparison Results -->
+                <div id="comparisonResults" class="hidden mt-8 pt-6 border-t">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Comparison Results</h3>
+                    <div id="comparisonContent"></div>
+                </div>
+            </div>
+
+            <!-- ENHANCED COMPARISON TAB -->
+            <div id="content-enhanced" class="tab-content hidden lg:col-span-2 card bg-white p-6 rounded-xl border border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-2">⭐ Enhanced Comparison (with Mappings)</h2>
+
+                <div class="space-y-6">
+                    <div class="bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 p-4 mb-6">
+                        <h3 class="text-sm font-bold text-purple-900 mb-2">Enhanced Features:</h3>
+                        <ul class="text-sm text-purple-800 space-y-1 list-disc list-inside">
+                            <li><strong>Employee Mapping:</strong> Uses PERNR_ECC_ECP.xlsx to match employees across systems</li>
+                            <li><strong>Wage Type Classification:</strong> Uses wagetype_classification.xlsx for categorization</li>
+                            <li><strong>Amount Comparison:</strong> Shows ECC Amount, ECP Amount, and Difference</li>
+                            <li><strong>Detailed Results:</strong> All ECP columns + ECC Amount + Difference</li>
+                        </ul>
+                    </div>
+
+                    <!-- File Upload Section -->
+                    <div class="grid md:grid-cols-2 gap-6 mb-6">
+                        <div class="border-2 border-dashed border-blue-300 rounded-lg p-6 bg-blue-50">
+                            <label for="ecc_file_upload" class="block text-sm font-semibold text-blue-800 mb-3">📄 Upload ECC JSON File</label>
+                            <input type="file" id="ecc_file_upload" accept=".json" title="Select an encoded ECC JSON file to upload"
+                                class="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700">
+                            <p class="text-xs text-blue-600 mt-2">Select encoded ECC JSON file</p>
+                            <div id="ecc_file_info" class="mt-2 text-xs text-gray-600"></div>
+                        </div>
+
+                        <div class="border-2 border-dashed border-green-300 rounded-lg p-6 bg-green-50">
+                            <label for="ecp_file_upload" class="block text-sm font-semibold text-green-800 mb-3">📄 Upload ECP JSON File</label>
+                            <input type="file" id="ecp_file_upload" accept=".json" title="Select an encoded ECP JSON file to upload"
+                                class="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700">
+                            <p class="text-xs text-green-600 mt-2">Select encoded ECP JSON file</p>
+                            <div id="ecp_file_info" class="mt-2 text-xs text-gray-600"></div>
+                        </div>
+                    </div>
+
+                    <!-- Or use existing datasets -->
+                    <div class="bg-gray-50 border rounded-lg p-4">
+                        <h3 class="text-sm font-semibold text-gray-800 mb-3">Or Compare Existing Datasets:</h3>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="enhanced_dataset_a" class="block text-sm font-medium text-gray-700 mb-1">Select ECC Dataset</label>
+                                <select id="enhanced_dataset_a" class="w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                                    <option value="">-- Select ECC Dataset --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="enhanced_dataset_b" class="block text-sm font-medium text-gray-700 mb-1">Select ECP Dataset</label>
+                                <select id="enhanced_dataset_b" class="w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                                    <option value="">-- Select ECP Dataset --</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex justify-end space-x-4 pt-4 border-t">
+                        <button onclick="runEnhancedComparison()" id="enhancedCompareBtn"
+                            class="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg shadow-xl hover:from-purple-700 hover:to-pink-700 transition duration-150 transform hover:scale-105">
+                            ⭐ Run Enhanced Comparison
+                        </button>
+                    </div>
+
+                    <!-- Enhanced Comparison Results -->
+                    <div id="enhancedResults" class="hidden mt-8 pt-6 border-t">
+                        <h3 class="text-xl font-bold text-gray-800 mb-4">Enhanced Comparison Results</h3>
+                        <div id="enhancedContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DASK COMPARISON TAB -->
+            <div id="content-dask" class="tab-content hidden lg:col-span-2 card bg-white p-6 rounded-xl border border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-2">⚡ Async Dask Comparison (Progressive Loading)</h2>
+
+                <div class="space-y-6">
+                    <div class="bg-gradient-to-r from-cyan-50 to-blue-50 border-l-4 border-cyan-500 p-4 mb-6">
+                        <h3 class="text-sm font-bold text-cyan-900 mb-2">🚀 New Async Features:</h3>
+                        <ul class="text-sm text-cyan-800 space-y-1 list-disc list-inside">
+                            <li><strong>Instant Response:</strong> Job starts immediately, track progress in real-time</li>
+                            <li><strong>DuckDB Storage:</strong> Results stored in fast in-memory analytical database</li>
+                            <li><strong>Multi-Level Sorting:</strong> Sort by ECP ID → Category → Amount (DESC)</li>
+                            <li><strong>Sub-100ms Queries:</strong> Lightning-fast pagination after initial computation</li>
+                            <li><strong>Preserved Types:</strong> All data types from source files maintained</li>
+                        </ul>
+                    </div>
+
+                    <!-- Dataset Selection -->
+                    <div class="bg-gray-50 border rounded-lg p-4">
+                        <h3 class="text-sm font-semibold text-gray-800 mb-3">Select Datasets to Compare:</h3>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="dask_dataset_ecc" class="block text-sm font-medium text-gray-700 mb-1">ECC Dataset</label>
+                                <select id="dask_dataset_ecc" class="w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                                    <option value="">-- Select ECC Dataset --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="dask_dataset_ecp" class="block text-sm font-medium text-gray-700 mb-1">ECP Dataset</label>
+                                <select id="dask_dataset_ecp" class="w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                                    <option value="">-- Select ECP Dataset --</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pagination Settings -->
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <label for="page_size" class="text-sm font-medium text-gray-700 mr-2">Results per page:</label>
+                                <select id="page_size" class="rounded-md border-gray-300 shadow-sm p-2 border">
+                                    <option value="50">50</option>
+                                    <option value="100" selected>100</option>
+                                    <option value="200">200</option>
+                                    <option value="500">500</option>
+                                </select>
+                            </div>
+                            <div class="text-sm">
+                                <span id="async_job_status" class="text-gray-600">Ready to start</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex flex-col gap-4 pt-4 border-t">
+                        <div class="flex justify-center gap-4">
+                            <button onclick="runAsyncDaskComparison()" id="asyncDaskCompareBtn"
+                                class="px-10 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold rounded-lg shadow-2xl hover:from-cyan-700 hover:to-blue-700 transition duration-150 transform hover:scale-105">
+                                ⚡ Start Async Comparison
+                            </button>
+                            <button onclick="refreshAsyncResults()" id="asyncRefreshBtn"
+                                class="px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-lg shadow-2xl hover:from-green-700 hover:to-emerald-700 transition duration-150 transform hover:scale-105 hidden">
+                                🔄 Refresh Results
+                            </button>
+                            <button onclick="loadLatestCompletedJob()" id="loadLatestBtn"
+                                class="px-6 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg shadow-2xl hover:from-purple-700 hover:to-pink-700 transition duration-150 transform hover:scale-105">
+                                📂 Load Latest Results
+                            </button>
+                        </div>
+                        
+                        <!-- Manual Job ID Input -->
+                        <div class="flex justify-center gap-2 text-sm">
+                            <input type="text" id="manualJobId" placeholder="Or enter Job ID manually..." 
+                                class="px-4 py-2 border rounded-lg w-96 font-mono text-xs"/>
+                            <button onclick="loadManualJob()" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">
+                                Load Job
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Progress Section -->
+                    <div id="daskProgress" class="hidden">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-lg font-semibold text-blue-900">Processing Comparison...</h3>
+                                <span id="progressPercent" class="text-2xl font-bold text-blue-700">0%</span>
+                            </div>
+                            
+                            <!-- Progress Bar -->
+                            <div class="w-full bg-gray-200 rounded-full h-4 mb-3 overflow-hidden">
+                                <div id="progressBar" class="bg-gradient-to-r from-cyan-500 to-blue-600 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                            
+                            <p id="progressMessage" class="text-sm text-blue-700">Initializing...</p>
+                            
+                            <div class="mt-4 grid grid-cols-3 gap-4 text-center text-xs">
+                                <div class="bg-white rounded p-2">
+                                    <div class="font-semibold text-gray-700">Job ID</div>
+                                    <div id="jobIdDisplay" class="text-gray-600 font-mono text-xs break-all cursor-pointer hover:bg-gray-50 p-1 rounded" 
+                                         onclick="copyJobId()" title="Click to copy Job ID">-</div>
+                                </div>
+                                <div class="bg-white rounded p-2">
+                                    <div class="font-semibold text-gray-700">Status</div>
+                                    <div id="jobStatusDisplay" class="text-gray-600">-</div>
+                                </div>
+                                <div class="bg-white rounded p-2">
+                                    <div class="font-semibold text-gray-700">Elapsed</div>
+                                    <div id="elapsedTime" class="text-gray-600">0s</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dask Comparison Results -->
+                    <div id="daskResults" class="hidden mt-8 pt-6 border-t">
+                        <div id="daskSummary"></div>
+                        <div id="daskContent" class="mt-6"></div>
+                        
+                        <!-- Pagination Controls -->
+                        <div id="daskPagination" class="mt-6 flex justify-between items-center border-t pt-4">
+                            <button onclick="loadAsyncDaskPage('prev')" id="prevPageBtn" disabled
+                                class="px-4 py-2 bg-gray-300 text-gray-600 rounded-lg disabled:opacity-50">
+                                ← Previous
+                            </button>
+                            <div id="pageInfo" class="text-sm text-gray-600">
+                                Page 1 of 1
+                            </div>
+                            <button onclick="loadAsyncDaskPage('next')" id="nextPageBtn" disabled
+                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-300 disabled:text-gray-600">
+                                Next →
+                            </button>
+                        </div>
+
+                        <!-- Export & Refresh Buttons -->
+                        <div class="mt-6 pt-4 border-t flex space-x-4">
+                            <button onclick="refreshAsyncResults()" 
+                                class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                                🔄 Refresh Results
+                            </button>
+                            <button onclick="viewAllJobs()" 
+                                class="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
+                                📋 View All Jobs
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- UPLOAD TAB -->
+            <div id="content-upload" class="tab-content hidden lg:col-span-2 card bg-white p-6 rounded-xl border border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-2">📤 Upload & Parse Files</h2>
+                
+                <div class="space-y-6">
+                    <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4">
+                        <p class="text-sm text-yellow-800">
+                            <strong>Important:</strong> Files will be parsed and encoded for testing. Original names will be replaced with EMP_XXXXX format.
+                        </p>
+                    </div>
+
+                    <form id="uploadForm" class="space-y-6">
+                        <div class="space-y-2">
+                            <label for="file_upload" class="block text-sm font-semibold text-gray-700">
+                                Select TXT File to Parse
+                            </label>
+                            <input type="file" id="file_upload" accept=".txt,.csv" 
+                                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                            <p class="text-xs text-gray-500">Supported formats: TXT (tab-delimited), CSV</p>
+                        </div>
+
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <label for="encoding" class="block text-sm font-medium text-gray-700">
+                                    File Encoding
+                                </label>
+                                <select id="encoding" class="w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="utf-16-le">UTF-16 LE</option>
+                                    <option value="utf-8">UTF-8</option>
+                                    <option value="iso-8859-1">ISO-8859-1</option>
+                                </select>
+                            </div>
+
+                            <div class="space-y-2">
+                                <label for="delimiter" class="block text-sm font-medium text-gray-700">
+                                    Delimiter
+                                </label>
+                                <select id="delimiter" class="w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="tab">Tab (\\t)</option>
+                                    <option value=",">Comma (,)</option>
+                                    <option value="|">Pipe (|)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label for="output_name" class="block text-sm font-medium text-gray-700">
+                                Output Dataset Name
+                            </label>
+                            <input type="text" id="output_name" 
+                                class="w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500" 
+                                placeholder="e.g., ECCSEP05_encoded">
+                            <p class="text-xs text-gray-500">Leave empty to auto-generate from filename</p>
+                        </div>
+                    </form>
+
+                    <div class="pt-4 border-t">
+                        <button onclick="uploadAndParse()" id="uploadBtn"
+                            class="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg shadow-lg hover:from-purple-700 hover:to-blue-700 transition duration-150">
+                            📤 Upload & Parse
+                        </button>
+                    </div>
+
+                    <div id="uploadProgress" class="hidden">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div class="flex items-center space-x-3 mb-2">
+                                <div class="spinner"></div>
+                                <span class="text-sm font-medium text-blue-800">Processing...</span>
+                            </div>
+                            <div id="uploadStatus" class="text-xs text-blue-600"></div>
+                        </div>
+                    </div>
+
+                    <div id="uploadResult" class="hidden"></div>
+                </div>
+            </div>
+
+            <!-- SIDEBAR - Dataset Info & Quick Actions -->
+            <div class="card bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-xl text-white">
+                <h2 class="text-xl font-bold text-gray-100 mb-4 border-b border-gray-700 pb-2">📋 Quick Info</h2>
+                
+                <div id="sidebarContent" class="space-y-4">
+                    <!-- Dynamic content based on active tab -->
+                    <div class="bg-gray-700 bg-opacity-50 rounded-lg p-4">
+                        <h3 class="text-sm font-semibold text-gray-300 mb-2">System Status</h3>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">API Server:</span>
+                                <span id="sidebar-api-status" class="text-green-400">●  Online</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Datasets:</span>
+                                <span id="sidebar-dataset-count" class="text-blue-300">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="selectedDatasetInfo" class="hidden bg-blue-900 bg-opacity-30 rounded-lg p-4">
+                        <h3 class="text-sm font-semibold text-blue-300 mb-2">Selected Dataset</h3>
+                        <div id="selectedDatasetContent" class="text-xs space-y-1"></div>
+                    </div>
+
+                    <div class="bg-gray-700 bg-opacity-50 rounded-lg p-4">
+                        <h3 class="text-sm font-semibold text-gray-300 mb-3">Quick Actions</h3>
+                        <div class="space-y-2">
+                            <button onclick="loadDatasets()" class="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition">
+                                🔄 Refresh Datasets
+                            </button>
+                            <button onclick="window.open('http://localhost:8000/docs', '_blank')" class="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition">
+                                📖 API Docs
+                            </button>
+                            <button onclick="clearCache()" class="w-full px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition">
+                                🗑️ Clear Cache
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="scrollable max-h-64 bg-gray-900 rounded-lg p-4">
+                        <h3 class="text-sm font-semibold text-gray-300 mb-2">Activity Log</h3>
+                        <div id="activityLog" class="space-y-1 text-xs text-gray-400"></div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // === CONFIGURATION ===
+        const API_BASE_URL = 'http://localhost:8000';
+        let currentDatasets = [];
+        let selectedDataset = null;
+        let activityLogItems = [];
+
+        // === UTILITY FUNCTIONS ===
+        function logActivity(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+            const colorClass = type === 'success' ? 'text-green-400' : type === 'error' ? 'text-red-400' : 'text-blue-400';
+            
+            activityLogItems.unshift({ timestamp, message, icon, colorClass });
+            if (activityLogItems.length > 50) activityLogItems.pop();
+            
+            const logEl = document.getElementById('activityLog');
+            if (logEl) {
+                logEl.innerHTML = activityLogItems.map(item => 
+                    `<div class="${item.colorClass}">[${item.timestamp}] ${item.icon} ${item.message}</div>`
+                ).join('');
+            }
+        }
+
+        function showNotification(message, type = 'info') {
+            // Could implement toast notifications here
+            console.log(`[${type.toUpperCase()}]`, message);
+            logActivity(message, type);
+        }
+
+        function formatNumber(num) {
+            return num.toLocaleString();
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // === TAB MANAGEMENT ===
+        function switchTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-button').forEach(el => {
+                el.classList.remove('active', 'border-blue-600', 'text-blue-600');
+                el.classList.add('border-transparent', 'text-gray-600');
+            });
+            
+            // Show selected tab
+            const contentEl = document.getElementById(`content-${tabName}`);
+            const tabEl = document.getElementById(`tab-${tabName}`);
+            
+            if (contentEl) contentEl.classList.remove('hidden');
+            if (tabEl) {
+                tabEl.classList.add('active', 'border-blue-600', 'text-blue-600');
+                tabEl.classList.remove('border-transparent', 'text-gray-600');
+            }
+            
+            logActivity(`Switched to ${tabName} tab`);
+            
+            // Load content based on tab
+            if (tabName === 'datasets') {
+                loadDatasets();
+            } else if (tabName === 'comparison') {
+                populateComparisonSelects();
+            } else if (tabName === 'enhanced') {
+                populateEnhancedDatasetSelects();
+            } else if (tabName === 'dask') {
+                populateDaskDatasetSelects();
+            }
+        }
+        
+        async function populateEnhancedDatasetSelects() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/data/available`);
+                const data = await response.json();
+                const datasets = data.datasets || [];
+                
+                console.log('Loading enhanced datasets:', datasets);
+                
+                const eccSelect = document.getElementById('enhanced_dataset_a');
+                const ecpSelect = document.getElementById('enhanced_dataset_b');
+                
+                // Clear existing options except first
+                if (eccSelect && ecpSelect) {
+                    eccSelect.innerHTML = '<option value="">-- Select ECC Dataset --</option>';
+                    ecpSelect.innerHTML = '<option value="">-- Select ECP Dataset --</option>';
+                    
+                    datasets.forEach(ds => {
+                        const optionA = document.createElement('option');
+                        optionA.value = ds;
+                        optionA.textContent = ds;
+                        eccSelect.appendChild(optionA);
+                        
+                        const optionB = document.createElement('option');
+                        optionB.value = ds;
+                        optionB.textContent = ds;
+                        ecpSelect.appendChild(optionB);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading datasets for enhanced comparison:', error);
+            }
+        }
+        
+        async function populateDaskDatasetSelects() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/data/available`);
+                const data = await response.json();
+                const datasets = data.datasets || [];
+                
+                console.log('Loading Dask datasets:', datasets);
+                
+                const eccSelect = document.getElementById('dask_dataset_ecc');
+                const ecpSelect = document.getElementById('dask_dataset_ecp');
+                
+                if (!eccSelect || !ecpSelect) {
+                    console.error('Dask dataset select elements not found');
+                    return;
+                }
+                
+                // Clear existing options except first
+                eccSelect.innerHTML = '<option value="">-- Select ECC Dataset --</option>';
+                ecpSelect.innerHTML = '<option value="">-- Select ECP Dataset --</option>';
+                
+                datasets.forEach(ds => {
+                    const optionA = document.createElement('option');
+                    optionA.value = ds;
+                    optionA.textContent = ds;
+                    eccSelect.appendChild(optionA);
+                    
+                    const optionB = document.createElement('option');
+                    optionB.value = ds;
+                    optionB.textContent = ds;
+                    ecpSelect.appendChild(optionB);
+                });
+                
+                console.log('Populated Dask selects with', datasets.length, 'datasets');
+                
+                // Auto-load latest completed results when datasets are populated
+                setTimeout(() => {
+                    loadLatestCompletedJob().catch(e => console.log('No previous results to auto-load'));
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Error loading datasets for Dask comparison:', error);
+            }
+        }
+
+        // === API FUNCTIONS ===
+        async function checkApiStatus() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/data/available`);
+                if (response.ok) {
+                    document.getElementById('apiStatus').className = 'w-3 h-3 rounded-full bg-green-500';
+                    document.getElementById('apiStatusText').textContent = 'API Connected';
+                    document.getElementById('sidebar-api-status').innerHTML = '● Online';
+                    document.getElementById('sidebar-api-status').className = 'text-green-400';
+                    return true;
+                }
+            } catch (error) {
+                document.getElementById('apiStatus').className = 'w-3 h-3 rounded-full bg-red-500';
+                document.getElementById('apiStatusText').textContent = 'API Offline';
+                document.getElementById('sidebar-api-status').innerHTML = '● Offline';
+                document.getElementById('sidebar-api-status').className = 'text-red-400';
+                logActivity('API connection failed', 'error');
+            }
+            return false;
+        }
+
+        async function loadDatasets() {
+            logActivity('Loading datasets...');
+            document.getElementById('datasetsLoading').classList.remove('hidden');
+            document.getElementById('datasetsContent').classList.add('hidden');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/data/available`);
+                const data = await response.json();
+                
+                currentDatasets = data.datasets || [];
+                document.getElementById('sidebar-dataset-count').textContent = currentDatasets.length;
+                
+                await displayDatasets(currentDatasets);
+                
+                // Also populate Dask comparison dropdowns
+                await populateDaskDatasetSelects();
+                
+                document.getElementById('datasetsLoading').classList.add('hidden');
+                document.getElementById('datasetsContent').classList.remove('hidden');
+                
+                logActivity(`Loaded ${currentDatasets.length} dataset(s)`, 'success');
+            } catch (error) {
+                document.getElementById('datasetsLoading').innerHTML = 
+                    `<div class="text-center text-red-600"><p>❌ Error loading datasets</p><p class="text-sm">${error.message}</p></div>`;
+                logActivity(`Error loading datasets: ${error.message}`, 'error');
+            }
+        }
+
+        async function displayDatasets(datasets) {
+            const container = document.getElementById('datasetsContent');
+            
+            if (datasets.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                        <p class="text-gray-600 text-lg mb-2">📂 No datasets found</p>
+                        <p class="text-sm text-gray-500 mb-4">Upload and parse files to get started</p>
+                        <button onclick="switchTab('upload')" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                            Go to Upload
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '<div class="space-y-4">';
+            
+            for (const dataset of datasets) {
+                try {
+                    const [metaResponse, statsResponse] = await Promise.all([
+                        fetch(`${API_BASE_URL}/data/metadata/${dataset}`),
+                        fetch(`${API_BASE_URL}/data/stats/${dataset}`)
+                    ]);
+                    
+                    const meta = await metaResponse.json();
+                    const stats = await statsResponse.json();
+                    
+                    html += `
+                        <div class="border border-gray-200 rounded-lg p-5 hover:shadow-lg transition bg-white">
+                            <div class="flex justify-between items-start mb-3">
+                                <h3 class="text-xl font-bold text-gray-800">${dataset}</h3>
+                                <span class="badge bg-blue-100 text-blue-800">${formatNumber(meta.metadata.rows)} rows</span>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+                                <div>
+                                    <span class="text-gray-600">Employees:</span>
+                                    <span class="font-semibold text-gray-800">${formatNumber(stats.statistics.unique_employees)}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">Wage Types:</span>
+                                    <span class="font-semibold text-gray-800">${formatNumber(stats.statistics.unique_wage_types)}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">Columns:</span>
+                                    <span class="font-semibold text-gray-800">${meta.metadata.columns.length}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">File Size:</span>
+                                    <span class="font-semibold text-gray-800">${formatBytes(meta.metadata.file_size_bytes)}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="flex space-x-2">
+                                <button onclick="viewDatasetDetails('${dataset}')" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm">
+                                    📊 View Details
+                                </button>
+                                <button onclick="exportDataset('${dataset}')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition text-sm">
+                                    ⬇️ Export
+                                </button>
+                                <button onclick="deleteDataset('${dataset}')" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                } catch (error) {
+                    html += `
+                        <div class="border border-red-200 rounded-lg p-4 bg-red-50">
+                            <p class="text-red-800 font-semibold">${dataset}</p>
+                            <p class="text-sm text-red-600">Error loading metadata</p>
+                        </div>
+                    `;
+                }
+            }
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        async function viewDatasetDetails(datasetName) {
+            selectedDataset = datasetName;
+            logActivity(`Viewing details for ${datasetName}`);
+            
+            try {
+                const [metaResponse, statsResponse, recordsResponse] = await Promise.all([
+                    fetch(`${API_BASE_URL}/data/metadata/${datasetName}`),
+                    fetch(`${API_BASE_URL}/data/stats/${datasetName}`),
+                    fetch(`${API_BASE_URL}/data/records/${datasetName}?limit=5`)
+                ]);
+                
+                const meta = await metaResponse.json();
+                const stats = await statsResponse.json();
+                const records = await recordsResponse.json();
+                
+                // Show in sidebar
+                document.getElementById('selectedDatasetInfo').classList.remove('hidden');
+                document.getElementById('selectedDatasetContent').innerHTML = `
+                    <div class="space-y-1">
+                        <div><strong>Dataset:</strong> ${datasetName}</div>
+                        <div><strong>Rows:</strong> ${formatNumber(meta.metadata.rows)}</div>
+                        <div><strong>Employees:</strong> ${formatNumber(stats.statistics.unique_employees)}</div>
+                        <div><strong>Total Amount:</strong> ${stats.statistics.total_amount.toFixed(2)}</div>
+                    </div>
+                `;
+                
+                // Show modal or expanded view
+                alert(`Dataset: ${datasetName}\n\nRows: ${formatNumber(meta.metadata.rows)}\nEmployees: ${formatNumber(stats.statistics.unique_employees)}\nWage Types: ${formatNumber(stats.statistics.unique_wage_types)}\n\nColumns: ${meta.metadata.columns.join(', ')}`);
+                
+            } catch (error) {
+                showNotification(`Error loading dataset details: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteDataset(datasetName) {
+            if (!confirm(`Are you sure you want to delete "${datasetName}"?\n\nThis action cannot be undone.`)) {
+                return;
+            }
+            
+            logActivity(`Deleting dataset: ${datasetName}`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/data/datasets/${datasetName}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to delete dataset');
+                }
+                
+                const result = await response.json();
+                showNotification(`Dataset "${datasetName}" deleted successfully`, 'success');
+                
+                // Reload datasets
+                await loadDatasets();
+                
+            } catch (error) {
+                showNotification(`Error deleting dataset: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteAllDatasetsConfirm() {
+            const confirmed = confirm(
+                '⚠️ WARNING: Delete ALL Datasets?\n\n' +
+                'This will PERMANENTLY delete all JSON files in the encoded directory.\n\n' +
+                'This action CANNOT be undone!\n\n' +
+                'Type "DELETE ALL" in the next prompt to confirm.'
+            );
+            
+            if (!confirmed) return;
+            
+            const confirmation = prompt('Type "DELETE ALL" to confirm deletion of all datasets:');
+            
+            if (confirmation !== 'DELETE ALL') {
+                showNotification('Deletion cancelled - confirmation text did not match', 'info');
+                return;
+            }
+            
+            logActivity('Deleting all datasets...');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/data/datasets`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to delete datasets');
+                }
+                
+                const result = await response.json();
+                showNotification(
+                    `Successfully deleted ${result.deleted_count} dataset(s)`,
+                    'success'
+                );
+                
+                // Reload datasets (should show empty)
+                await loadDatasets();
+                
+            } catch (error) {
+                showNotification(`Error deleting datasets: ${error.message}`, 'error');
+            }
+        }
+
+        async function exportDataset(datasetName) {
+            logActivity(`Exporting ${datasetName}...`);
+            showNotification(`Exporting ${datasetName}...`, 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/data/records/${datasetName}?limit=10000`);
+                const data = await response.json();
+                
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${datasetName}_export.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showNotification(`Exported ${datasetName}successfully`, 'success');
+            } catch (error) {
+                showNotification(`Export failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function clearCache() {
+            if (!confirm('Clear API cache? This will reload data from disk on next request.')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/data/cache`, { method: 'DELETE' });
+                const data = await response.json();
+                showNotification(data.message, 'success');
+                logActivity('Cache cleared', 'success');
+            } catch (error) {
+                showNotification(`Error clearing cache: ${error.message}`, 'error');
+            }
+        }
+
+        // === COMPARISON FUNCTIONS ===
+        async function populateComparisonSelects() {
+            const selectA = document.getElementById('compare_dataset_a');
+            const selectB = document.getElementById('compare_dataset_b');
+            
+            if (currentDatasets.length === 0) {
+                await loadDatasets();
+            }
+            
+            const options = currentDatasets.map(ds => `<option value="${ds}">${ds}</option>`).join('');
+            selectA.innerHTML = '<option value="">-- Select Dataset A --</option>' + options;
+            selectB.innerHTML = '<option value="">-- Select Dataset B --</option>' + options;
+            
+            // Auto-select if we have exactly 2 datasets
+            if (currentDatasets.length === 2) {
+                selectA.value = currentDatasets[0];
+                selectB.value = currentDatasets[1];
+            }
+        }
+
+        async function runComparison() {
+            const datasetA = document.getElementById('compare_dataset_a').value;
+            const datasetB = document.getElementById('compare_dataset_b').value;
+            
+            if (!datasetA || !datasetB) {
+                alert('Please select both datasets');
+                return;
+            }
+            
+            if (datasetA === datasetB) {
+                alert('Please select different datasets');
+                return;
+            }
+            
+            logActivity(`Starting comparison: ${datasetA} vs ${datasetB}`);
+            document.getElementById('compareBtn').disabled = true;
+            document.getElementById('compareBtn').innerHTML = '<div class="spinner inline-block mr-2"></div> Comparing...';
+            
+            try {
+                // Get comparison summary first
+                const summaryResponse = await fetch(`${API_BASE_URL}/compare/summary/${datasetA}/vs/${datasetB}`);
+                const summary = await summaryResponse.json();
+                
+                // Get detailed comparison
+                const detailResponse = await fetch(`${API_BASE_URL}/compare/datasets/${datasetA}/vs/${datasetB}?key_fields=Pers.No.,For-period,WT`);
+                const details = await detailResponse.json();
+                
+                // Display results
+                displayComparisonResults(datasetA, datasetB, summary, details);
+                
+                showNotification(`Comparison completed: ${summary.only_in_a_count + summary.only_in_b_count + summary.differences_count} differences found`, 'success');
+                
+            } catch (error) {
+                showNotification(`Comparison failed: ${error.message}`, 'error');
+                console.error('Comparison error:', error);
+            } finally {
+                document.getElementById('compareBtn').disabled = false;
+                document.getElementById('compareBtn').innerHTML = '🔍 Run Comparison';
+            }
+        }
+
+        function displayComparisonResults(datasetA, datasetB, summary, details) {
+            const resultsDiv = document.getElementById('comparisonResults');
+            const contentDiv = document.getElementById('comparisonContent');
+            
+            resultsDiv.classList.remove('hidden');
+            
+            const html = `
+                <div class="mb-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">📊 Comparison Results: ${datasetA} vs ${datasetB}</h3>
+                    
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500">
+                            <div class="text-2xl font-bold text-blue-800">${formatNumber(details.summary.common_keys_count)}</div>
+                            <div class="text-sm text-blue-600">Matching Records</div>
+                        </div>
+                        <div class="bg-red-50 p-4 rounded-lg border-l-4 border-red-500">
+                            <div class="text-2xl font-bold text-red-800">${formatNumber(summary.only_in_a_count)}</div>
+                            <div class="text-sm text-red-600">Only in ${datasetA}</div>
+                        </div>
+                        <div class="bg-orange-50 p-4 rounded-lg border-l-4 border-orange-500">
+                            <div class="text-2xl font-bold text-orange-800">${formatNumber(summary.only_in_b_count)}</div>
+                            <div class="text-sm text-orange-600">Only in ${datasetB}</div>
+                        </div>
+                        <div class="bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-500">
+                            <div class="text-2xl font-bold text-yellow-800">${formatNumber(summary.differences_count)}</div>
+                            <div class="text-sm text-yellow-600">Value Differences</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Dataset Stats -->
+                    <div class="grid md:grid-cols-2 gap-6 mb-6">
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-semibold text-gray-800 mb-2">${datasetA}</h4>
+                            <div class="text-sm space-y-1">
+                                <div>Total Records: ${formatNumber(details.summary.total_records_a)}</div>
+                                <div>Unique Keys: ${formatNumber(details.summary.unique_keys_a)}</div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-semibold text-gray-800 mb-2">${datasetB}</h4>
+                            <div class="text-sm space-y-1">
+                                <div>Total Records: ${formatNumber(details.summary.total_records_b)}</div>
+                                <div>Unique Keys: ${formatNumber(details.summary.unique_keys_b)}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Detailed Results -->
+                    <div class="space-y-4">
+                        ${details.only_in_a.count > 0 ? `
+                            <div class="border border-red-200 rounded-lg p-4 bg-red-50">
+                                <h4 class="font-semibold text-red-800 mb-2">❌ Records Only in ${datasetA} (${formatNumber(details.only_in_a.count)})</h4>
+                                <div class="text-sm text-red-700 mb-2">Sample records:</div>
+                                <div class="bg-white p-2 rounded text-xs font-mono overflow-x-auto max-h-32">
+                                    ${details.only_in_a.sample_records.slice(0, 3).map(record => 
+                                        JSON.stringify(record, null, 2)
+                                    ).join('\n---\n')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${details.only_in_b.count > 0 ? `
+                            <div class="border border-orange-200 rounded-lg p-4 bg-orange-50">
+                                <h4 class="font-semibold text-orange-800 mb-2">⚠️ Records Only in ${datasetB} (${formatNumber(details.only_in_b.count)})</h4>
+                                <div class="text-sm text-orange-700 mb-2">Sample records:</div>
+                                <div class="bg-white p-2 rounded text-xs font-mono overflow-x-auto max-h-32">
+                                    ${details.only_in_b.sample_records.slice(0, 3).map(record => 
+                                        JSON.stringify(record, null, 2)
+                                    ).join('\n---\n')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${details.value_differences.count > 0 ? `
+                            <div class="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
+                                <h4 class="font-semibold text-yellow-800 mb-2">🔄 Value Differences (${formatNumber(details.value_differences.count)})</h4>
+                                <div class="text-sm text-yellow-700 mb-2">Sample differences:</div>
+                                <div class="space-y-2">
+                                    ${details.value_differences.samples.slice(0, 5).map(diff => `
+                                        <div class="bg-white p-3 rounded text-xs">
+                                            <div class="font-semibold mb-1">Key: ${diff.key}</div>
+                                            ${diff.differences.map(d => `
+                                                <div class="ml-2">
+                                                    <strong>${d.field}:</strong> 
+                                                    <span class="text-red-600">${d.value_a || 'null'}</span> → 
+                                                    <span class="text-green-600">${d.value_b || 'null'}</span>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <!-- Export Button -->
+                    <div class="mt-6 pt-4 border-t">
+                        <button onclick="exportComparison('${datasetA}', '${datasetB}')" 
+                            class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                            📥 Export Full Results
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            contentDiv.innerHTML = html;
+        }
+
+        async function exportComparison(datasetA, datasetB) {
+            logActivity(`Exporting comparison results...`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/compare/datasets/${datasetA}/vs/${datasetB}?key_fields=Pers.No.,For-period,WT`);
+                const data = await response.json();
+                
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `comparison_${datasetA}_vs_${datasetB}_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showNotification('Comparison results exported successfully', 'success');
+            } catch (error) {
+                showNotification(`Export failed: ${error.message}`, 'error');
+            }
+        }
+
+        // === ENHANCED COMPARISON FUNCTIONS ===
+        async function runEnhancedComparison() {
+            const eccFileInput = document.getElementById('ecc_file_upload');
+            const ecpFileInput = document.getElementById('ecp_file_upload');
+            const eccDataset = document.getElementById('enhanced_dataset_a').value;
+            const ecpDataset = document.getElementById('enhanced_dataset_b').value;
+            
+            // Check if files are uploaded or datasets selected
+            const hasFiles = eccFileInput.files[0] && ecpFileInput.files[0];
+            const hasDatasets = eccDataset && ecpDataset;
+            
+            if (!hasFiles && !hasDatasets) {
+                alert('Please either upload both JSON files OR select both datasets');
+                return;
+            }
+            
+            logActivity('Starting enhanced comparison...');
+            document.getElementById('enhancedCompareBtn').disabled = true;
+            document.getElementById('enhancedCompareBtn').innerHTML = '<div class="spinner inline-block mr-2"></div> Comparing...';
+            
+            try {
+                let result;
+                
+                if (hasFiles) {
+                    // Upload and compare files
+                    const formData = new FormData();
+                    formData.append('ecc_file', eccFileInput.files[0]);
+                    formData.append('ecp_file', ecpFileInput.files[0]);
+                    
+                    const response = await fetch(`${API_BASE_URL}/compare/mapped/upload`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (!response.ok) throw new Error('Upload comparison failed');
+                    result = await response.json();
+                } else {
+                    // Compare existing datasets
+                    const response = await fetch(`${API_BASE_URL}/compare/mapped/datasets/${eccDataset}/${ecpDataset}`);
+                    if (!response.ok) throw new Error('Dataset comparison failed');
+                    result = await response.json();
+                }
+                
+                displayEnhancedResults(result);
+                showNotification('Enhanced comparison completed successfully!', 'success');
+                
+            } catch (error) {
+                showNotification(`Enhanced comparison failed: ${error.message}`, 'error');
+                console.error('Enhanced comparison error:', error);
+            } finally {
+                document.getElementById('enhancedCompareBtn').disabled = false;
+                document.getElementById('enhancedCompareBtn').innerHTML = '⭐ Run Enhanced Comparison';
+            }
+        }
+
+        function displayEnhancedResults(result) {
+            const resultsDiv = document.getElementById('enhancedResults');
+            const contentDiv = document.getElementById('enhancedContent');
+            
+            resultsDiv.classList.remove('hidden');
+            
+            const summary = result.summary;
+            const results = result.results || [];
+            
+            // Create data table
+            let tableHtml = `
+                <div class="mb-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">📊 Enhanced Comparison Summary</h3>
+                    
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500">
+                            <div class="text-2xl font-bold text-blue-800">${formatNumber(summary.matched_records)}</div>
+                            <div class="text-sm text-blue-600">Matched Records</div>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-500">
+                            <div class="text-2xl font-bold text-purple-800">${formatNumber(summary.mapped_employees)}</div>
+                            <div class="text-sm text-purple-600">Mapped Employees</div>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg border-l-4 border-green-500">
+                            <div class="text-2xl font-bold text-green-800">$${formatNumber(summary.total_ecp_amount.toFixed(2))}</div>
+                            <div class="text-sm text-green-600">Total ECP Amount</div>
+                        </div>
+                        <div class="bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-500">
+                            <div class="text-2xl font-bold ${summary.total_difference >= 0 ? 'text-green-800' : 'text-red-800'}">
+                                $${formatNumber(Math.abs(summary.total_difference).toFixed(2))}
+                            </div>
+                            <div class="text-sm text-yellow-600">Total Difference</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Detailed Results Table -->
+                    <div class="bg-white border rounded-lg overflow-hidden">
+                        <div class="overflow-x-auto" style="max-height: 600px;">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ECC Emp</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ECP Emp</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Wage Type</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ECC Amount</th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ECP Amount</th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Difference</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+            `;
+            
+            results.slice(0, 100).forEach(row => {
+                const diffClass = row.difference > 0 ? 'text-green-600' : row.difference < 0 ? 'text-red-600' : 'text-gray-600';
+                const statusClass = row.status === 'Matched' ? 'bg-green-100 text-green-800' : 
+                                   row.status === 'ECC Only' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800';
+                
+                tableHtml += `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm text-gray-900">${row.ecc_employee}</td>
+                        <td class="px-4 py-3 text-sm text-gray-900">${row.ecp_employee}</td>
+                        <td class="px-4 py-3 text-sm font-mono text-gray-700">${row.wage_type}</td>
+                        <td class="px-4 py-3 text-xs text-gray-600">${row.wage_category}</td>
+                        <td class="px-4 py-3"><span class="px-2 py-1 text-xs rounded-full ${statusClass}">${row.status}</span></td>
+                        <td class="px-4 py-3 text-sm text-right font-semibold">${formatNumber(row.ecc_amount.toFixed(2))}</td>
+                        <td class="px-4 py-3 text-sm text-right font-semibold">${formatNumber(row.ecp_amount.toFixed(2))}</td>
+                        <td class="px-4 py-3 text-sm text-right font-bold ${diffClass}">
+                            ${row.difference >= 0 ? '+' : ''}${formatNumber(row.difference.toFixed(2))}
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tableHtml += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    ${results.length > 100 ? `<p class="text-sm text-gray-600 mt-4">Showing first 100 of ${formatNumber(results.length)} results</p>` : ''}
+                    
+                    <!-- Export Button -->
+                    <div class="mt-6 pt-4 border-t">
+                        <button onclick="exportEnhancedResults()" 
+                            class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                            📥 Export Full Results
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            contentDiv.innerHTML = tableHtml;
+        }
+
+        async function exportEnhancedResults() {
+            // Implementation for exporting enhanced results
+            showNotification('Export functionality coming soon', 'info');
+        }
+
+        // === DASK COMPARISON FUNCTIONS ===
+        let currentDaskPage = 1;
+        let currentDaskPageSize = 100;
+        let currentDaskEccDataset = '';
+        let currentDaskEcpDataset = '';
+
+        async function startDaskCluster() {
+            logActivity('Starting Dask cluster...');
+            document.getElementById('startClusterBtn').disabled = true;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/compare/dask/cluster/start`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) throw new Error('Failed to start cluster');
+                const result = await response.json();
+                
+                document.getElementById('dask_cluster_status').innerHTML = 
+                    `Cluster Status: <span class="text-green-600 font-semibold">Running</span> | Workers: ${result.n_workers} | <a href="${result.dashboard}" target="_blank" class="text-blue-600 hover:underline">Dashboard</a>`;
+                
+                showNotification('Dask cluster started successfully!', 'success');
+            } catch (error) {
+                showNotification(`Failed to start cluster: ${error.message}`, 'error');
+                document.getElementById('startClusterBtn').disabled = false;
+            }
+        }
+
+        async function runDaskComparison() {
+            const eccDataset = document.getElementById('dask_dataset_ecc').value;
+            const ecpDataset = document.getElementById('dask_dataset_ecp').value;
+            const pageSize = parseInt(document.getElementById('page_size').value);
+            
+            if (!eccDataset || !ecpDataset) {
+                alert('Please select both ECC and ECP datasets');
+                return;
+            }
+            
+            currentDaskEccDataset = eccDataset;
+            currentDaskEcpDataset = ecpDataset;
+            currentDaskPageSize = pageSize;
+            currentDaskPage = 1;
+            
+            await loadDaskComparisonPage(1);
+        }
+
+        async function loadDaskComparisonPage(page) {
+            logActivity(`Loading Dask comparison page ${page}...`);
+            document.getElementById('daskCompareBtn').disabled = true;
+            document.getElementById('daskCompareBtn').innerHTML = '<div class="spinner inline-block mr-2"></div> Comparing...';
+            
+            try {
+                const response = await fetch(
+                    `${API_BASE_URL}/compare/dask/datasets/${currentDaskEccDataset}/${currentDaskEcpDataset}?page=${page}&page_size=${currentDaskPageSize}`
+                );
+                
+                if (!response.ok) throw new Error('Dask comparison failed');
+                const result = await response.json();
+                
+                displayDaskResults(result);
+                currentDaskPage = page;
+                showNotification(`Dask comparison page ${page} loaded successfully!`, 'success');
+                
+            } catch (error) {
+                showNotification(`Dask comparison failed: ${error.message}`, 'error');
+                console.error('Dask comparison error:', error);
+            } finally {
+                document.getElementById('daskCompareBtn').disabled = false;
+                document.getElementById('daskCompareBtn').innerHTML = '⚡ Run Dask Comparison';
+            }
+        }
+
+        function displayDaskResults(result) {
+            const resultsDiv = document.getElementById('daskResults');
+            const summaryDiv = document.getElementById('daskSummary');
+            const contentDiv = document.getElementById('daskContent');
+            
+            resultsDiv.classList.remove('hidden');
+            
+            const summary = result.summary;
+            const results = result.results || [];
+            const pagination = result.pagination;
+            
+            // Display summary
+            summaryDiv.innerHTML = `
+                <h3 class="text-xl font-bold text-gray-800 mb-4">📊 Dask Comparison Summary</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500">
+                        <div class="text-2xl font-bold text-blue-800">${formatNumber(summary.matched_count)}</div>
+                        <div class="text-sm text-blue-600">Matched Records</div>
+                    </div>
+                    <div class="bg-red-50 p-4 rounded-lg border-l-4 border-red-500">
+                        <div class="text-2xl font-bold text-red-800">${formatNumber(summary.ecc_only_count)}</div>
+                        <div class="text-sm text-red-600">ECC Only</div>
+                    </div>
+                    <div class="bg-orange-50 p-4 rounded-lg border-l-4 border-orange-500">
+                        <div class="text-2xl font-bold text-orange-800">${formatNumber(summary.ecp_only_count)}</div>
+                        <div class="text-sm text-orange-600">ECP Only</div>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-500">
+                        <div class="text-2xl font-bold ${summary.total_difference >= 0 ? 'text-green-800' : 'text-red-800'}">
+                            $${formatNumber(Math.abs(summary.total_difference).toFixed(2))}
+                        </div>
+                        <div class="text-sm text-purple-600">Total Difference</div>
+                    </div>
+                </div>
+            `;
+            
+            // Display results table
+            let tableHtml = `
+                <div class="bg-white border rounded-lg overflow-hidden">
+                    <div class="overflow-x-auto" style="max-height: 600px;">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ECP ID</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Wage Type</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ECC Amount</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ECP Amount</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Difference</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+            `;
+            
+            results.forEach(row => {
+                const diffClass = row.difference > 0 ? 'text-green-600' : row.difference < 0 ? 'text-red-600' : 'text-gray-600';
+                const statusClass = row.status === 'Matched' ? 'bg-green-100 text-green-800' : 
+                                   row.status === 'ECC Only' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800';
+                
+                tableHtml += `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm text-gray-900">${row.ecp_id}</td>
+                        <td class="px-4 py-3 text-sm font-mono text-gray-700">${row.WT}</td>
+                        <td class="px-4 py-3 text-xs text-gray-600">${row.wage_category || 'Unknown'}</td>
+                        <td class="px-4 py-3"><span class="px-2 py-1 text-xs rounded-full ${statusClass}">${row.status}</span></td>
+                        <td class="px-4 py-3 text-sm text-right font-semibold">${formatNumber(row.ecc_amount.toFixed(2))}</td>
+                        <td class="px-4 py-3 text-sm text-right font-semibold">${formatNumber(row.ecp_amount.toFixed(2))}</td>
+                        <td class="px-4 py-3 text-sm text-right font-bold ${diffClass}">
+                            ${row.difference >= 0 ? '+' : ''}${formatNumber(row.difference.toFixed(2))}
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tableHtml += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            
+            contentDiv.innerHTML = tableHtml;
+            
+            // Update pagination controls
+            document.getElementById('pageInfo').textContent = `Page ${pagination.page} of ${pagination.total_pages} (${formatNumber(pagination.total_rows)} total rows)`;
+            document.getElementById('prevPageBtn').disabled = !pagination.has_prev;
+            document.getElementById('nextPageBtn').disabled = !pagination.has_next;
+        }
+
+        async function loadDaskPage(direction) {
+            const newPage = direction === 'next' ? currentDaskPage + 1 : currentDaskPage - 1;
+            await loadDaskComparisonPage(newPage);
+        }
+
+        async function exportDaskResults() {
+            logActivity('Exporting full Dask comparison results...');
+            
+            try {
+                const response = await fetch(
+                    `${API_BASE_URL}/compare/dask/export/${currentDaskEccDataset}/${currentDaskEcpDataset}?format=parquet`
+                );
+                
+                if (!response.ok) throw new Error('Export failed');
+                const result = await response.json();
+                
+                showNotification(`Results exported to: ${result.output_path}`, 'success');
+            } catch (error) {
+                showNotification(`Export failed: ${error.message}`, 'error');
+            }
+        }
+
+        // === ASYNC DASK COMPARISON FUNCTIONS ===
+        let currentAsyncJobId = null;
+        let asyncPollingInterval = null;
+        let asyncStartTime = null;
+        let currentAsyncPage = 1;
+        let currentAsyncPageSize = 100;
+
+        async function runAsyncDaskComparison() {
+            const eccDataset = document.getElementById('dask_dataset_ecc').value;
+            const ecpDataset = document.getElementById('dask_dataset_ecp').value;
+            const pageSize = parseInt(document.getElementById('page_size').value);
+            
+            if (!eccDataset || !ecpDataset) {
+                alert('Please select both ECC and ECP datasets');
+                return;
+            }
+            
+            currentAsyncPageSize = pageSize;
+            currentAsyncPage = 1;
+            
+            logActivity(`Starting async comparison: ${eccDataset} vs ${ecpDataset}`);
+            
+            // Disable button and show progress
+            document.getElementById('asyncDaskCompareBtn').disabled = true;
+            document.getElementById('asyncDaskCompareBtn').innerHTML = '<div class="spinner inline-block mr-2"></div> Starting...';
+            document.getElementById('daskProgress').classList.remove('hidden');
+            document.getElementById('daskResults').classList.add('hidden');
+            
+            asyncStartTime = Date.now();
+            
+            try {
+                // Start async comparison
+                const response = await fetch(`${API_BASE_URL}/compare/dask/async/start`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ecc_dataset: eccDataset,
+                        ecp_dataset: ecpDataset
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Failed to start comparison');
+                const result = await response.json();
+                
+                currentAsyncJobId = result.job_id;
+                document.getElementById('jobIdDisplay').textContent = result.job_id;
+                document.getElementById('async_job_status').innerHTML = `<span class="text-blue-600 font-semibold">Job ${result.job_id.substring(0, 8)}... running</span>`;
+                
+                showNotification(`Comparison started! Job ID: ${result.job_id}`, 'success');
+                logActivity(`Job ID: ${result.job_id}`);
+                
+                // Also show full job ID in console for easy copying
+                console.log(`%c[JOB ID] ${result.job_id}`, 'color: #0ea5e9; font-weight: bold; font-size: 14px');
+                console.log(`%c[INFO] You can reload this job later by pasting the Job ID above`, 'color: #6366f1');
+                
+                // Start polling for progress
+                pollAsyncJobStatus();
+                
+            } catch (error) {
+                showNotification(`Failed to start comparison: ${error.message}`, 'error');
+                document.getElementById('asyncDaskCompareBtn').disabled = false;
+                document.getElementById('asyncDaskCompareBtn').innerHTML = '⚡ Start Async Comparison';
+                document.getElementById('daskProgress').classList.add('hidden');
+            }
+        }
+
+        async function pollAsyncJobStatus() {
+            if (!currentAsyncJobId) return;
+            
+            // Clear any existing interval
+            if (asyncPollingInterval) {
+                clearInterval(asyncPollingInterval);
+            }
+            
+            // Update elapsed time display
+            const updateElapsed = () => {
+                if (asyncStartTime) {
+                    const elapsed = Math.floor((Date.now() - asyncStartTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = elapsed % 60;
+                    document.getElementById('elapsedTime').textContent = 
+                        minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+                }
+            };
+            
+            // Poll every 2 seconds
+            asyncPollingInterval = setInterval(async () => {
+                try {
+                    updateElapsed();
+                    
+                    const response = await fetch(`${API_BASE_URL}/compare/dask/async/status/${currentAsyncJobId}`);
+                    if (!response.ok) throw new Error('Failed to get job status');
+                    
+                    const status = await response.json();
+                    
+                    // Update UI
+                    document.getElementById('progressPercent').textContent = `${status.progress.toFixed(1)}%`;
+                    document.getElementById('progressBar').style.width = `${status.progress}%`;
+                    document.getElementById('progressMessage').textContent = status.progress_message;
+                    document.getElementById('jobStatusDisplay').textContent = status.status;
+                    
+                    // Check if completed
+                    if (status.status === 'completed') {
+                        clearInterval(asyncPollingInterval);
+                        updateElapsed();
+                        
+                        showNotification('Comparison completed! Loading results...', 'success');
+                        
+                        // Load first page of results
+                        await loadAsyncDaskResults(1);
+                        
+                        // Hide progress, show results
+                        setTimeout(() => {
+                            document.getElementById('daskProgress').classList.add('hidden');
+                            document.getElementById('asyncDaskCompareBtn').disabled = false;
+                            document.getElementById('asyncDaskCompareBtn').innerHTML = '⚡ Start Async Comparison';
+                        }, 500);
+                        
+                    } else if (status.status === 'failed') {
+                        clearInterval(asyncPollingInterval);
+                        showNotification(`Comparison failed: ${status.error}`, 'error');
+                        document.getElementById('daskProgress').classList.add('hidden');
+                        document.getElementById('asyncDaskCompareBtn').disabled = false;
+                        document.getElementById('asyncDaskCompareBtn').innerHTML = '⚡ Start Async Comparison';
+                    }
+                    
+                } catch (error) {
+                    console.error('Polling error:', error);
+                    clearInterval(asyncPollingInterval);
+                    showNotification(`Polling failed: ${error.message}`, 'error');
+                }
+            }, 2000);
+            
+            // Initial update
+            updateElapsed();
+        }
+
+        async function loadAsyncDaskResults(page) {
+            if (!currentAsyncJobId) {
+                console.error('No currentAsyncJobId set');
+                return;
+            }
+            
+            logActivity(`Loading async results page ${page}...`);
+            console.log(`[DEBUG] Loading results for job ${currentAsyncJobId}, page ${page}, size ${currentAsyncPageSize}`);
+            
+            try {
+                const sortBy = 'ecp_id,wage_category,ecc_amount DESC,ecp_amount DESC';
+                const url = `${API_BASE_URL}/compare/dask/async/results/${currentAsyncJobId}?page=${page}&page_size=${currentAsyncPageSize}&sort_by=${encodeURIComponent(sortBy)}`;
+                console.log(`[DEBUG] Fetching: ${url}`);
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[DEBUG] Response error:', errorText);
+                    throw new Error(`Failed to load results: ${response.status} ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                console.log('[DEBUG] Results loaded:', result);
+                
+                displayAsyncDaskResults(result);
+                currentAsyncPage = page;
+                
+                // Show refresh button
+                document.getElementById('asyncRefreshBtn').classList.remove('hidden');
+                
+                showNotification(`Page ${page} loaded successfully`, 'success');
+                
+            } catch (error) {
+                showNotification(`Failed to load results: ${error.message}`, 'error');
+                console.error('[ERROR] Load results error:', error);
+            }
+        }
+
+        function displayAsyncDaskResults(result) {
+            const resultsDiv = document.getElementById('daskResults');
+            const summaryDiv = document.getElementById('daskSummary');
+            const contentDiv = document.getElementById('daskContent');
+            
+            resultsDiv.classList.remove('hidden');
+            
+            const summary = result.summary || {};
+            const results = result.results || [];
+            const pagination = result.pagination || {};
+            
+            // Display summary
+            summaryDiv.innerHTML = `
+                <h3 class="text-xl font-bold text-gray-800 mb-4">📊 Comparison Summary</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500">
+                        <div class="text-2xl font-bold text-blue-800">${formatNumber(summary.matched_count || 0)}</div>
+                        <div class="text-sm text-blue-600">Matched Records</div>
+                    </div>
+                    <div class="bg-red-50 p-4 rounded-lg border-l-4 border-red-500">
+                        <div class="text-2xl font-bold text-red-800">${formatNumber(summary.ecc_only_count || 0)}</div>
+                        <div class="text-sm text-red-600">ECC Only</div>
+                    </div>
+                    <div class="bg-orange-50 p-4 rounded-lg border-l-4 border-orange-500">
+                        <div class="text-2xl font-bold text-orange-800">${formatNumber(summary.ecp_only_count || 0)}</div>
+                        <div class="text-sm text-orange-600">ECP Only</div>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-500">
+                        <div class="text-2xl font-bold text-purple-800">${formatNumber(summary.total_rows || 0)}</div>
+                        <div class="text-sm text-purple-600">Total Rows</div>
+                    </div>
+                </div>
+            `;
+            
+            // Display results table (sorted by ECP ID, Category, Amount)
+            let tableHtml = `
+                <div class="bg-white border rounded-lg overflow-hidden">
+                    <div class="overflow-x-auto scrollable">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ECP ID</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Wage Type</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ECC Amount</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ECP Amount</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Difference</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+            `;
+            
+            results.forEach(row => {
+                const diffClass = row.difference > 0 ? 'text-green-600' : row.difference < 0 ? 'text-red-600' : 'text-gray-600';
+                const statusClass = row.status === 'Matched' ? 'bg-green-100 text-green-800' : 
+                                   row.status === 'ECC Only' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800';
+                
+                tableHtml += `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm text-gray-900">${row.ecp_id}</td>
+                        <td class="px-4 py-3 text-sm font-mono text-gray-700">${row.wage_type}</td>
+                        <td class="px-4 py-3 text-xs text-gray-600">${row.wage_category || 'Unknown'}</td>
+                        <td class="px-4 py-3"><span class="px-2 py-1 text-xs rounded-full ${statusClass}">${row.status}</span></td>
+                        <td class="px-4 py-3 text-sm text-right font-semibold">${formatNumber(row.ecc_amount.toFixed(2))}</td>
+                        <td class="px-4 py-3 text-sm text-right font-semibold">${formatNumber(row.ecp_amount.toFixed(2))}</td>
+                        <td class="px-4 py-3 text-sm text-right font-bold ${diffClass}">
+                            ${row.difference >= 0 ? '+' : ''}${formatNumber(row.difference.toFixed(2))}
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tableHtml += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            
+            contentDiv.innerHTML = tableHtml;
+            
+            // Update pagination controls
+            document.getElementById('pageInfo').textContent = `Page ${pagination.page || 1} of ${formatNumber(pagination.total_pages || 1)} (${formatNumber(pagination.total_rows || 0)} total rows)`;
+            document.getElementById('prevPageBtn').disabled = !pagination.has_prev;
+            document.getElementById('nextPageBtn').disabled = !pagination.has_next;
+        }
+
+        async function loadAsyncDaskPage(direction) {
+            const newPage = direction === 'next' ? currentAsyncPage + 1 : currentAsyncPage - 1;
+            await loadAsyncDaskResults(newPage);
+        }
+
+        async function refreshAsyncResults() {
+            if (!currentAsyncJobId) {
+                showNotification('No active job to refresh', 'info');
+                return;
+            }
+            await loadAsyncDaskResults(currentAsyncPage);
+        }
+
+        async function viewAllJobs() {
+            logActivity('Loading all jobs...');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/compare/dask/async/jobs?limit=50`);
+                if (!response.ok) throw new Error('Failed to load jobs');
+                
+                const data = await response.json();
+                const jobs = data.jobs || [];
+                
+                // Create modal or display jobs
+                let jobsHtml = `
+                    <h3 class="text-xl font-bold mb-4">Recent Comparison Jobs</h3>
+                    <div class="space-y-2">
+                `;
+                
+                jobs.forEach(job => {
+                    const statusColor = job.status === 'completed' ? 'green' : 
+                                       job.status === 'failed' ? 'red' : 'blue';
+                    jobsHtml += `
+                        <div class="border rounded p-3 bg-gray-50">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <div class="font-semibold">${job.ecc_dataset} vs ${job.ecp_dataset}</div>
+                                    <div class="text-xs text-gray-600">Job: ${job.job_id.substring(0, 12)}...</div>
+                                    <div class="text-xs text-gray-600">Created: ${new Date(job.created_at).toLocaleString()}</div>
+                                </div>
+                                <div>
+                                    <span class="px-2 py-1 text-xs rounded bg-${statusColor}-100 text-${statusColor}-800">${job.status}</span>
+                                </div>
+                            </div>
+                            ${job.status === 'completed' ? `
+                                <button onclick="loadJobResults('${job.job_id}')" class="mt-2 text-xs text-blue-600 hover:underline">
+                                    View Results
+                                </button>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+                
+                jobsHtml += `</div>`;
+                
+                // Show in a simple alert or modal
+                alert(`Found ${jobs.length} jobs. Check console for details.`);
+                console.log('Jobs:', jobs);
+                
+            } catch (error) {
+                showNotification(`Failed to load jobs: ${error.message}`, 'error');
+            }
+        }
+
+        async function refreshAsyncResults() {
+            if (!currentAsyncJobId) {
+                showNotification('No active job to refresh', 'warning');
+                return;
+            }
+            
+            logActivity('Refreshing results...');
+            showNotification('Refreshing results...', 'info');
+            
+            try {
+                // Reload current page
+                await loadAsyncDaskResults(currentAsyncPage);
+                showNotification('Results refreshed successfully', 'success');
+            } catch (error) {
+                showNotification(`Failed to refresh: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadLatestCompletedJob() {
+            logActivity('Loading latest completed job...');
+            showNotification('Loading latest job...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/compare/dask/async/jobs?limit=50`);
+                if (!response.ok) throw new Error('Failed to fetch jobs');
+                
+                const data = await response.json();
+                const completedJobs = data.jobs.filter(j => j.status === 'completed');
+                
+                if (completedJobs.length === 0) {
+                    showNotification('No completed jobs found', 'warning');
+                    return;
+                }
+                
+                const latestJob = completedJobs[0];
+                console.log('[DEBUG] Loading job:', latestJob.job_id);
+                
+                currentAsyncJobId = latestJob.job_id;
+                currentAsyncPage = 1;
+                
+                await loadAsyncDaskResults(1);
+                
+                showNotification(`Loaded job ${latestJob.job_id.substring(0, 8)}...`, 'success');
+                
+            } catch (error) {
+                showNotification(`Failed to load latest job: ${error.message}`, 'error');
+                console.error('[ERROR] Load latest job error:', error);
+            }
+        }
+
+        function copyJobId() {
+            const jobId = currentAsyncJobId || document.getElementById('jobIdDisplay').textContent;
+            if (jobId && jobId !== '-') {
+                navigator.clipboard.writeText(jobId).then(() => {
+                    showNotification('Job ID copied to clipboard!', 'success');
+                    console.log(`Copied: ${jobId}`);
+                }).catch(() => {
+                    prompt('Copy this Job ID:', jobId);
+                });
+            }
+        }
+
+        async function loadManualJob() {
+            const jobId = document.getElementById('manualJobId').value.trim();
+            
+            if (!jobId) {
+                showNotification('Please enter a Job ID', 'warning');
+                return;
+            }
+            
+            logActivity(`Loading job ${jobId}...`);
+            showNotification('Loading job...', 'info');
+            
+            try {
+                // Verify job exists
+                const response = await fetch(`${API_BASE_URL}/compare/dask/async/status/${jobId}`);
+                if (!response.ok) throw new Error('Job not found');
+                
+                const status = await response.json();
+                
+                if (status.status !== 'completed') {
+                    showNotification(`Job is ${status.status}, not completed yet`, 'warning');
+                    return;
+                }
+                
+                currentAsyncJobId = jobId;
+                currentAsyncPage = 1;
+                
+                await loadAsyncDaskResults(1);
+                
+                showNotification(`Loaded job ${jobId.substring(0, 8)}...`, 'success');
+                
+            } catch (error) {
+                showNotification(`Failed to load job: ${error.message}`, 'error');
+                console.error('[ERROR] Load manual job error:', error);
+            }
+        }
+
+        async function loadJobResults(jobId) {
+            currentAsyncJobId = jobId;
+            currentAsyncPage = 1;
+            await loadAsyncDaskResults(1);
+        }
+
+        // Update file info displays
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('ecc_file_upload')?.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    document.getElementById('ecc_file_info').textContent = `Selected: ${file.name} (${formatBytes(file.size)})`;
+                }
+            });
+            
+            document.getElementById('ecp_file_upload')?.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    document.getElementById('ecp_file_info').textContent = `Selected: ${file.name} (${formatBytes(file.size)})`;
+                }
+            });
+        });
+
+        // === UPLOAD FUNCTIONS ===
+        async function uploadAndParse() {
+            const fileInput = document.getElementById('file_upload');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a file');
+                return;
+            }
+            
+            logActivity(`Uploading ${file.name}...`);
+            document.getElementById('uploadBtn').disabled = true;
+            document.getElementById('uploadProgress').classList.remove('hidden');
+            document.getElementById('uploadStatus').textContent = 'Reading file...';
+            
+            // Simulate upload process (will need backend endpoint)
+            setTimeout(() => {
+                document.getElementById('uploadStatus').textContent = 'Parsing with Dask...';
+            }, 1000);
+            
+            setTimeout(() => {
+                document.getElementById('uploadStatus').textContent = 'Encoding names...';
+            }, 2000);
+            
+            setTimeout(() => {
+                document.getElementById('uploadProgress').classList.add('hidden');
+                document.getElementById('uploadResult').classList.remove('hidden');
+                document.getElementById('uploadResult').innerHTML = `
+                    <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4">
+                        <p class="text-yellow-800">
+                            ⚠️ <strong>Upload endpoint not yet implemented</strong><br>
+                            File: ${file.name} (${formatBytes(file.size)})<br>
+                            This will parse and encode the file automatically.
+                        </p>
+                    </div>
+                `;
+                document.getElementById('uploadBtn').disabled = false;
+                showNotification('Upload feature coming soon', 'info');
+            }, 3000);
+        }
+
+        // === INITIALIZATION ===
+        document.addEventListener('DOMContentLoaded', async () => {
+            logActivity('Application started');
+            const apiOk = await checkApiStatus();
+            
+            if (apiOk) {
+                await loadDatasets();
+            } else {
+                showNotification('API server is not running. Please start the server with: uvicorn backend.main:app --reload', 'error');
+            }
+        });
+
+    </script>
+</body>
+</html>
