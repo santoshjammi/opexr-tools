@@ -5,6 +5,7 @@ Supports large file processing with Dask for scalability.
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import uuid
@@ -19,6 +20,7 @@ from .api_compare import router as compare_router
 from .api_mapped_compare import router as mapped_compare_router
 from .api_dask_compare import router as dask_compare_router
 from .api_dask_async import router as dask_async_router
+from .api_comparison import router as comparison_router
 
 app = FastAPI(
     title="Data Comparison API",
@@ -26,12 +28,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Mount static files
+static_dir = Path(__file__).parent.parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
 # Include routers
 app.include_router(data_router)
 app.include_router(compare_router)
 app.include_router(mapped_compare_router)
 app.include_router(dask_compare_router)
 app.include_router(dask_async_router)
+app.include_router(comparison_router)
 
 # CORS middleware
 app.add_middleware(
@@ -65,9 +73,24 @@ async def root():
             "parse": "/parse",
             "status": "/status/{job_id}",
             "result": "/result/{job_id}",
-            "jobs": "/jobs"
+            "jobs": "/jobs",
+            "comparison_viewer": "/viewer"
         }
     }
+
+
+@app.get("/viewer")
+async def comparison_viewer():
+    """Serve the comparison viewer HTML page."""
+    from fastapi.responses import HTMLResponse
+    static_dir = Path(__file__).parent.parent / "static"
+    html_file = static_dir / "index.html"
+    
+    if html_file.exists():
+        with open(html_file, 'r', encoding='utf-8') as f:
+            return HTMLResponse(content=f.read())
+    else:
+        raise HTTPException(status_code=404, detail="Viewer not found")
 
 
 @app.post("/parse", response_model=ParseResponse)
