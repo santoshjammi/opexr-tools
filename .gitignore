@@ -1,3 +1,8 @@
 data/
 server.log
 *.tmp
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+**/*.pyc
